@@ -2,7 +2,7 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 # --- Configuration ---
-$DefaultZipUrl = "https://example.com/seasonal_mods.zip" # À remplacer par l'URL réelle
+$DefaultZipUrl = "https://example.com/seasonal_mods.zip"
 $Title = "Assetto Corsa Mod Updater"
 $AccentColor = "#3b82f6" # Bleu
 $BgColor = "#111827" # Gris très sombre
@@ -11,12 +11,13 @@ $TextColor = "#f9fafb" # Blanc cassé
 
 # --- État de l'application ---
 $Global:ACPath = ""
+$Global:ZipUrl = $DefaultZipUrl
 $Global:IsUpdating = $false
 
 # --- Création de la Fenêtre ---
 $Form = New-Object System.Windows.Forms.Form
 $Form.Text = $Title
-$Form.Size = New-Object System.Drawing.Size(600, 450)
+$Form.Size = New-Object System.Drawing.Size(600, 520)
 $Form.StartPosition = "CenterScreen"
 $Form.BackColor = [System.Drawing.ColorTranslator]::FromHtml($BgColor)
 $Form.FormBorderStyle = "FixedDialog"
@@ -52,7 +53,7 @@ $Form.Controls.Add($LblSub)
 # Zone de sélection du dossier
 $GrpPath = New-Object System.Windows.Forms.Panel
 $GrpPath.Size = New-Object System.Drawing.Size(500, 100)
-$GrpPath.Location = New-Object New-Object System.Drawing.Point(50, 110)
+$GrpPath.Location = New-Object System.Drawing.Point(50, 110)
 $GrpPath.BackColor = [System.Drawing.ColorTranslator]::FromHtml($CardColor)
 $Form.Controls.Add($GrpPath)
 
@@ -87,16 +88,38 @@ $LblStatusIcon.Location = New-Object System.Drawing.Point(15, 70)
 $LblStatusIcon.Size = New-Object System.Drawing.Size(400, 20)
 $GrpPath.Controls.Add($LblStatusIcon)
 
+# Zone URL du ZIP
+$GrpUrl = New-Object System.Windows.Forms.Panel
+$GrpUrl.Size = New-Object System.Drawing.Size(500, 80)
+$GrpUrl.Location = New-Object System.Drawing.Point(50, 220)
+$GrpUrl.BackColor = [System.Drawing.ColorTranslator]::FromHtml($CardColor)
+$Form.Controls.Add($GrpUrl)
+
+$LblUrlHeader = New-Object System.Windows.Forms.Label
+$LblUrlHeader.Text = "Lien du ZIP de mise à jour (URL) :"
+$LblUrlHeader.ForeColor = [System.Drawing.Color]::LightGray
+$LblUrlHeader.Location = New-Object System.Drawing.Point(15, 15)
+$LblUrlHeader.Size = New-Object System.Drawing.Size(300, 20)
+$GrpUrl.Controls.Add($LblUrlHeader)
+
+$TxtUrl = New-Object System.Windows.Forms.TextBox
+$TxtUrl.Location = New-Object System.Drawing.Point(15, 40)
+$TxtUrl.Size = New-Object System.Drawing.Size(470, 25)
+$TxtUrl.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#030712")
+$TxtUrl.ForeColor = [System.Drawing.Color]::White
+$TxtUrl.Text = $Global:ZipUrl
+$GrpUrl.Controls.Add($TxtUrl)
+
 # Section Progrès
 $LblStatusText = New-Object System.Windows.Forms.Label
 $LblStatusText.Text = "Prêt"
 $LblStatusText.ForeColor = [System.Drawing.ColorTranslator]::FromHtml($TextColor)
-$LblStatusText.Location = New-Object System.Drawing.Point(50, 230)
+$LblStatusText.Location = New-Object System.Drawing.Point(50, 315)
 $LblStatusText.Size = New-Object System.Drawing.Size(400, 20)
 $Form.Controls.Add($LblStatusText)
 
 $ProgressBar = New-Object System.Windows.Forms.ProgressBar
-$ProgressBar.Location = New-Object System.Drawing.Point(50, 255)
+$ProgressBar.Location = New-Object System.Drawing.Point(50, 340)
 $ProgressBar.Size = New-Object System.Drawing.Size(500, 15)
 $ProgressBar.Style = "Continuous"
 $Form.Controls.Add($ProgressBar)
@@ -104,7 +127,7 @@ $Form.Controls.Add($ProgressBar)
 # Bouton Action
 $BtnUpdate = New-Object System.Windows.Forms.Button
 $BtnUpdate.Text = "Lancer la mise à jour"
-$BtnUpdate.Location = New-Object System.Drawing.Point(50, 300)
+$BtnUpdate.Location = New-Object System.Drawing.Point(50, 385)
 $BtnUpdate.Size = New-Object System.Drawing.Size(500, 50)
 $BtnUpdate.FlatStyle = "Flat"
 $BtnUpdate.BackColor = [System.Drawing.ColorTranslator]::FromHtml($AccentColor)
@@ -115,11 +138,28 @@ $Form.Controls.Add($BtnUpdate)
 
 # --- Logique ---
 
-# Charger le chemin sauvegardé (si existant)
+# Charger la configuration (si existante)
 $ConfigPath = Join-Path $env:LOCALAPPDATA "ACModUpdater.conf"
 if (Test-Path $ConfigPath) {
-    $Global:ACPath = Get-Content $ConfigPath
-    $TxtPath.Text = $Global:ACPath
+    $data = Get-Content $ConfigPath | ConvertFrom-Json -ErrorAction SilentlyContinue
+    if ($data) {
+        $Global:ACPath = $data.ACPath
+        $Global:ZipUrl = $data.ZipUrl
+        $TxtPath.Text = $Global:ACPath
+        if ($Global:ZipUrl) { $TxtUrl.Text = $Global:ZipUrl }
+    } else {
+        # Ancien format (juste le chemin)
+        $Global:ACPath = Get-Content $ConfigPath
+        $TxtPath.Text = $Global:ACPath
+    }
+}
+
+function Save-Config {
+    $config = @{
+        ACPath = $Global:ACPath
+        ZipUrl = $TxtUrl.Text
+    }
+    $config | ConvertTo-Json | Out-File $ConfigPath
 }
 
 function Verify-ACPath($path) {
@@ -148,7 +188,7 @@ $BtnBrowse.Add_Click({
     if ($Browser.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         $Global:ACPath = $Browser.SelectedPath
         $TxtPath.Text = $Global:ACPath
-        $Global:ACPath | Out-File $ConfigPath
+        Save-Config
         Update-UI-Status
     }
 })
@@ -157,7 +197,21 @@ function Start-UpdateProcess {
     $Global:IsUpdating = $true
     $BtnUpdate.Enabled = $false
     $BtnBrowse.Enabled = $false
+    $TxtUrl.ReadOnly = $true
     
+    # Récupérer l'URL actuelle du champ texte
+    $CurrentUrl = $TxtUrl.Text.Trim()
+    if ($CurrentUrl -eq "") {
+        [System.Windows.Forms.MessageBox]::Show("Veuillez saisir une URL valide pour le ZIP.", "Erreur", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+        $Global:IsUpdating = $false
+        Update-UI-Status
+        $BtnBrowse.Enabled = $true
+        $TxtUrl.ReadOnly = $false
+        return
+    }
+
+    Save-Config
+
     try {
         $TempDir = Join-Path $env:TEMP "ACUpdaterTemp"
         if (Test-Path $TempDir) { Remove-Item $TempDir -Recurse -Force }
@@ -169,9 +223,8 @@ function Start-UpdateProcess {
         $LblStatusText.Text = "Téléchargement des mods..."
         $ProgressBar.Value = 10
         
-        # Téléchargement avec .NET pour avoir une expérience propre (Powershell 5.1 n'aime pas trop l'async UI)
         $wc = New-Object System.Net.WebClient
-        $wc.DownloadFile($DefaultZipUrl, $ZipPath)
+        $wc.DownloadFile($CurrentUrl, $ZipPath)
         
         $ProgressBar.Value = 50
         
@@ -186,7 +239,6 @@ function Start-UpdateProcess {
         $LblStatusText.Text = "Installation dans Assetto Corsa..."
         $ContentPath = Join-Path $Global:ACPath "content"
         
-        # Fonction récursive pour trouver et déplacer cars/tracks
         function Install-Folders($source) {
             $items = Get-ChildItem $source -Directory
             foreach ($item in $items) {
@@ -216,11 +268,12 @@ function Start-UpdateProcess {
         
     } catch {
         $LblStatusText.Text = "Erreur : $($_.Exception.Message)"
-        [System.Windows.Forms.MessageBox]::Show("Une erreur est survenue :`n$($_.Exception.Message)", "Erreur", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        [System.Windows.Forms.MessageBox]::Show("Une erreur est survenue lors de la mise à jour :`n$($_.Exception.Message)", "Erreur", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
     } finally {
         $Global:IsUpdating = $false
         Update-UI-Status
         $BtnBrowse.Enabled = $true
+        $TxtUrl.ReadOnly = $false
     }
 }
 
